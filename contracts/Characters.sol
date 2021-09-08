@@ -80,7 +80,7 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
   // hasCharacter asserts that the owner has a character.
   modifier hasCharacter(address owner) {
     require((playerMetadata[owner] & PLAYER_METADATA_OWNS_CHARACTER) == PLAYER_METADATA_OWNS_CHARACTER, "Owner has no character");
-    _;  
+    _;
   }
 
   // mint a character of the given starting class.
