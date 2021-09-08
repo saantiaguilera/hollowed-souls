@@ -97,16 +97,19 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
   function _mintCharacter(string name, uint[] attrs) private noCharacter(msg.sender) {
     uint tokenID = characters.length;
-    Character char = Character(
-      name,
-      -89, // 10 base stats * 9 attributes - 1 starting level
-      attrs[0], attrs[1], attrs[2], attrs[3], attrs[4], attrs[5], attrs[6], attrs[7], attrs[8]
-    );
+    int lvl = -89; // 10 base stats * 9 attributes - 1 starting level
 
     // apply class stats to level
     for (uint8 i = 0; i < attrs.length; i++) {
-      char.level += attrs[i];
+      lvl += attrs[i];
     }
+    require(lvl > 0, "class attributes are lower than the base allowance");
+
+    Character char = Character(
+      name,
+      lvl,
+      attrs[0], attrs[1], attrs[2], attrs[3], attrs[4], attrs[5], attrs[6], attrs[7], attrs[8]
+    );
 
     characters.push(char);
     charactersByPlayer[msg.sender] = char;
