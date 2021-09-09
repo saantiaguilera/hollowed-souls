@@ -4,6 +4,7 @@ pragma solidity >=0.4.22 <0.9.0;
 import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "./Attributes.sol";
 
 contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
 
@@ -18,33 +19,20 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
   string public constant CHARACTER_TYPE_CLERIC = "Cleric";
   string public constant CHARACTER_TYPE_DEPRIVED = "Deprived";
 
-  uint8 private constant ATTRS_NUM = 9; // 255 attrs seems enough.
-
-  uint16 private constant PLAYER_MAX_LEVEL = 99 * ATTRS_NUM;
+  uint16 private constant PLAYER_MAX_LEVEL = 99 * 9; // 9 == Attributes.SIZE, solc can't infer it at compile time
 
   uint private constant LVLUP_BASE_SOULS_COST = 673; // Base souls cost for levelling up (from lvl 1->2).
   uint private constant LVLUP_MULTIPLIER_COST = 1027; // Base multiplier cost for levelling up (2,7%)
 
   event NewCharacter(address indexed minter, uint256 indexed character);
+  event LevelUp(address indexed owner, uint256 indexed character, uint16 indexed level);
 
   struct Character {
     string name;
 
     uint16 level;
 
-    Attribute attrs;
-  }
-
-  struct Attribute {
-    uint8 vigor;
-    uint8 attunement;
-    uint8 endurance;
-    uint8 vitality;
-    uint8 str;
-    uint8 dex;
-    uint8 intt;
-    uint8 fth;
-    uint8 luck;
+    Attributes.Values attrs;
   }
 
   mapping(address => uint) private soulsByPlayer;
@@ -98,7 +86,7 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
   }
 
   modifier allowedAttributes(uint8[] memory attrs) {
-    require(attrs.length == ATTRS_NUM, "attrs size is unexpected");
+    require(attrs.length == Attributes.SIZE, "attrs size is unexpected");
     _;
   }
 
@@ -117,7 +105,7 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
   ) public hasCharacter(msg.sender) allowedAttributes(attrs) {
 
     uint16 spentLvls = 0; // Compute how much levels the sender is trying to use
-    for (uint8 i = 0; i < ATTRS_NUM; i++) {
+    for (uint8 i = 0; i < Attributes.SIZE; i++) {
       spentLvls += uint16(attrs[i]);
     }
     require(spentLvls > 0, "no levels to spend");
@@ -136,14 +124,15 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
     soulsByPlayer[msg.sender] -= soulsRequired;
     characters[tokenID].level += spentLvls;
     _applyAttributes(tokenID, attrs);
+    emit LevelUp(msg.sender, tokenID, currentLvl + spentLvls);
   }
 
   function _mintCharacter(string memory name, uint8[] memory attrs) private noCharacter(msg.sender) {
     uint tokenID = characters.length;
-    int8 lvl = -89; // 10 base stats * 9 attributes - 1 starting level
+    int8 lvl = -89; // 10 base stats * 9 attributes - 1 starting level // TODO: Make it constant
 
     // apply class stats to level
-    for (uint8 i = 0; i < ATTRS_NUM; i++) {
+    for (uint8 i = 0; i < Attributes.SIZE; i++) {
       lvl += int8(attrs[i]);
     }
     require(lvl > 0, "class attributes are lower than the base allowance");
@@ -151,7 +140,7 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
     characters.push(Character(
       name,
       uint16(lvl),
-      Attribute(0, 0, 0, 0, 0, 0, 0, 0, 0) // Empty struct, we fill it later
+      Attributes.Values(0, 0, 0, 0, 0, 0, 0, 0, 0) // Empty struct, we fill it later
     ));
     _safeMint(msg.sender, tokenID);
     _applyAttributes(tokenID, attrs);
