@@ -13,38 +13,47 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
   string public constant CHARACTER_TYPE_HERALD = "Herald";
   string public constant CHARACTER_TYPE_THIEF = "Thief";
   string public constant CHARACTER_TYPE_ASSASSIN = "Assassin";
-  string public constant CHARACTER_TYPE_SORCERER = "Sorcerer";
+  string public constant CHARACTER_TYPE_SORCERER = "Sorcercer";
   string public constant CHARACTER_TYPE_PYROMANCER = "Pyromancer";
   string public constant CHARACTER_TYPE_CLERIC = "Cleric";
   string public constant CHARACTER_TYPE_DEPRIVED = "Deprived";
 
-  int private constant PLAYER_METADATA_OWNS_CHARACTER = 1 << 0; // If the player already has a character
+  uint8 private constant ATTRS_NUM = 9; // 255 attrs seems enough.
+
+  uint16 private constant PLAYER_MAX_LEVEL = 99 * ATTRS_NUM;
+
+  uint private constant LVLUP_BASE_SOULS_COST = 673; // Base souls cost for levelling up (from lvl 1->2).
+  uint private constant LVLUP_MULTIPLIER_COST = 1027; // Base multiplier cost for levelling up (2,7%)
 
   event NewCharacter(address indexed minter, uint256 indexed character);
 
   struct Character {
     string name;
 
-    uint level;
+    uint16 level;
 
-    uint vigor;
-    uint attunement;
-    uint endurance;
-    uint vitality;
-    uint str;
-    uint dex;
-    uint intt;
-    uint fth;
-    uint luck;
+    Attribute attrs;
+  }
+
+  struct Attribute {
+    uint8 vigor;
+    uint8 attunement;
+    uint8 endurance;
+    uint8 vitality;
+    uint8 str;
+    uint8 dex;
+    uint8 intt;
+    uint8 fth;
+    uint8 luck;
   }
 
   mapping(address => uint) private soulsByPlayer;
-  mapping(address => int) private playerMetadata;
-  mapping(address => Character) private charactersByPlayer;
 
-  mapping(string => uint[]) private startingClassesAttrs;
+  mapping(string => uint8[]) private startingClassesAttrs;
 
   Character[] private characters;
+
+  uint256[] private lvlUpSoulsCost;
 
   function initialize() public initializer {
     __ERC721_init("HollowedSouls character", "HSC");
@@ -63,6 +72,11 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
     startingClassesAttrs[CHARACTER_TYPE_PYROMANCER] = [11, 12, 10,  8, 12,  9, 14, 14,  7];
     startingClassesAttrs[CHARACTER_TYPE_CLERIC] = [10, 14,  9,  7, 12,  8,  7, 16, 13];
     startingClassesAttrs[CHARACTER_TYPE_DEPRIVED] = [10, 10, 10, 10, 10, 10, 10, 10, 10];
+
+    lvlUpSoulsCost.push(LVLUP_BASE_SOULS_COST); // Initial lvl up cost
+    for (uint i = 1; i < PLAYER_MAX_LEVEL; i++) { // First lvl is precomputed
+      lvlUpSoulsCost.push((lvlUpSoulsCost[i-1] * LVLUP_MULTIPLIER_COST) / 1000);
+    }
   }
 
   // onlyNonContract is a super simple modifier to shallowly detect if the address is a contract or not.
@@ -73,48 +87,87 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
   // noCharacter asserts that the owner has no characters.
   modifier noCharacter(address owner) {
-    require((playerMetadata[owner] & PLAYER_METADATA_OWNS_CHARACTER) == 0, "Owner already has a character");
+    require(balanceOf(owner) == 0, "Owner already has a character");
     _;
   }
 
   // hasCharacter asserts that the owner has a character.
   modifier hasCharacter(address owner) {
-    require((playerMetadata[owner] & PLAYER_METADATA_OWNS_CHARACTER) == PLAYER_METADATA_OWNS_CHARACTER, "Owner has no character");
+    require(balanceOf(owner) == 1, "Owner has no character");
+    _;
+  }
+
+  modifier allowedAttributes(uint8[] memory attrs) {
+    require(attrs.length == ATTRS_NUM, "attrs size is unexpected");
     _;
   }
 
   // mint a character of the given starting class.
-  function mint(string startingClass, string name) public onlyNonContract {
-    uint[] attrs = startingClassesAttrs[startingClass];
-    require(attrs.length == 9, "Unknown starting class");
+  function mint(
+    string memory startingClass, 
+    string memory name
+  ) public onlyNonContract allowedAttributes(startingClassesAttrs[startingClass]) {
 
-    _mintCharacter(name, attrs);
+    _mintCharacter(name, startingClassesAttrs[startingClass]);
   }
 
-  function getSelfCharacter() public view hasCharacter(msg.sender) returns(Character) {
-    return charactersByPlayer[msg.sender];
+  // levelUp a character
+  function levelUp(
+    uint8[] memory attrs
+  ) public hasCharacter(msg.sender) allowedAttributes(attrs) {
+
+    uint16 spentLvls = 0; // Compute how much levels the sender is trying to use
+    for (uint8 i = 0; i < ATTRS_NUM; i++) {
+      spentLvls += uint16(attrs[i]);
+    }
+    require(spentLvls > 0, "no levels to spend");
+
+    uint256 tokenID = tokenOfOwnerByIndex(msg.sender, 0);
+    uint16 currentLvl = characters[tokenID].level;
+    require(spentLvls + currentLvl < PLAYER_MAX_LEVEL, "levelling up overflows max lvl");
+
+    uint256 soulsRequired = 0; // Check souls needed and if they are available
+    for (uint16 i = 0; i < spentLvls; i++) {
+      soulsRequired += lvlUpSoulsCost[i+currentLvl]; // TODO: Use safemath
+    }
+    require(soulsRequired <= soulsByPlayer[msg.sender], "not enough souls");
+
+    // Apply levels
+    soulsByPlayer[msg.sender] -= soulsRequired;
+    characters[tokenID].level += spentLvls;
+    _applyAttributes(tokenID, attrs);
   }
 
-  function _mintCharacter(string name, uint[] attrs) private noCharacter(msg.sender) {
+  function _mintCharacter(string memory name, uint8[] memory attrs) private noCharacter(msg.sender) {
     uint tokenID = characters.length;
-    int lvl = -89; // 10 base stats * 9 attributes - 1 starting level
+    int8 lvl = -89; // 10 base stats * 9 attributes - 1 starting level
 
     // apply class stats to level
-    for (uint8 i = 0; i < attrs.length; i++) {
-      lvl += attrs[i];
+    for (uint8 i = 0; i < ATTRS_NUM; i++) {
+      lvl += int8(attrs[i]);
     }
     require(lvl > 0, "class attributes are lower than the base allowance");
 
-    Character char = Character(
+    characters.push(Character(
       name,
-      lvl,
-      attrs[0], attrs[1], attrs[2], attrs[3], attrs[4], attrs[5], attrs[6], attrs[7], attrs[8]
-    );
-
-    characters.push(char);
-    charactersByPlayer[msg.sender] = char;
-    playerMetadata[msg.sender] |= PLAYER_METADATA_OWNS_CHARACTER;
+      uint16(lvl),
+      Attribute(0, 0, 0, 0, 0, 0, 0, 0, 0) // Empty struct, we fill it later
+    ));
     _safeMint(msg.sender, tokenID);
+    _applyAttributes(tokenID, attrs);
     emit NewCharacter(msg.sender, tokenID);
+  }
+
+  function _applyAttributes(uint256 id, uint8[] memory attrs) private allowedAttributes(attrs) {
+    Character storage char = characters[id]; // TODO: Use safemath
+    char.attrs.vigor += attrs[0];
+    char.attrs.attunement += attrs[1];
+    char.attrs.endurance += attrs[2];
+    char.attrs.vitality += attrs[3];
+    char.attrs.str += attrs[4];
+    char.attrs.dex += attrs[5];
+    char.attrs.intt += attrs[6];
+    char.attrs.fth += attrs[7];
+    char.attrs.luck += attrs[8];
   }
 }
