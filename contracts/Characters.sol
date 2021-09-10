@@ -4,9 +4,13 @@ pragma solidity >=0.4.22 <0.9.0;
 import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
 import "./Attributes.sol";
 
 contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
+  
+  using SafeMath for uint16;
+  using SafeMath for uint8;
 
   string public constant CHARACTER_TYPE_KNIGHT = "Knight";
   string public constant CHARACTER_TYPE_MERCENARY = "Mercenary";
@@ -63,7 +67,7 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
     lvlUpSoulsCost.push(LVLUP_BASE_SOULS_COST); // Initial lvl up cost
     for (uint i = 1; i < PLAYER_MAX_LEVEL; i++) { // First lvl is precomputed
-      lvlUpSoulsCost.push((lvlUpSoulsCost[i-1] * LVLUP_MULTIPLIER_COST) / 1000);
+      lvlUpSoulsCost.push(lvlUpSoulsCost[i-1].mul(LVLUP_MULTIPLIER_COST).div(1000));
     }
   }
 
@@ -106,25 +110,25 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
     uint16 spentLvls = 0; // Compute how much levels the sender is trying to use
     for (uint8 i = 0; i < Attributes.SIZE; i++) {
-      spentLvls += uint16(attrs[i]);
+      spentLvls = uint16(spentLvls.add(uint16(attrs[i])));
     }
     require(spentLvls > 0, "no levels to spend");
 
     uint256 tokenID = tokenOfOwnerByIndex(msg.sender, 0);
     uint16 currentLvl = characters[tokenID].level;
-    require(spentLvls + currentLvl < PLAYER_MAX_LEVEL, "levelling up overflows max lvl");
+    require(spentLvls.add(currentLvl) < PLAYER_MAX_LEVEL, "levelling up overflows max lvl");
 
     uint256 soulsRequired = 0; // Check souls needed and if they are available
     for (uint16 i = 0; i < spentLvls; i++) {
-      soulsRequired += lvlUpSoulsCost[i+currentLvl]; // TODO: Use safemath
+      soulsRequired = soulsRequired.add(lvlUpSoulsCost[i.add(currentLvl)]);
     }
     require(soulsRequired <= soulsByPlayer[msg.sender], "not enough souls");
 
     // Apply levels
-    soulsByPlayer[msg.sender] -= soulsRequired;
-    characters[tokenID].level += spentLvls;
+    soulsByPlayer[msg.sender] = soulsByPlayer[msg.sender].sub(soulsRequired);
+    characters[tokenID].level = uint16(characters[tokenID].level.add(spentLvls));
     _applyAttributes(tokenID, attrs);
-    emit LevelUp(msg.sender, tokenID, currentLvl + spentLvls);
+    emit LevelUp(msg.sender, tokenID, uint16(currentLvl.add(spentLvls)));
   }
 
   function _mintCharacter(string memory name, uint8[] memory attrs) private noCharacter(msg.sender) {
@@ -133,7 +137,7 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
     // apply class stats to level
     for (uint8 i = 0; i < Attributes.SIZE; i++) {
-      lvl += int8(attrs[i]);
+      lvl += int8(attrs[i]); // cast is safe. initial attributes don't even surpass a word
     }
     require(lvl > 0, "class attributes are lower than the base allowance");
 
@@ -148,15 +152,15 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
   }
 
   function _applyAttributes(uint256 id, uint8[] memory attrs) private allowedAttributes(attrs) {
-    Character storage char = characters[id]; // TODO: Use safemath
-    char.attrs.vigor += attrs[0];
-    char.attrs.attunement += attrs[1];
-    char.attrs.endurance += attrs[2];
-    char.attrs.vitality += attrs[3];
-    char.attrs.str += attrs[4];
-    char.attrs.dex += attrs[5];
-    char.attrs.intt += attrs[6];
-    char.attrs.fth += attrs[7];
-    char.attrs.luck += attrs[8];
+    Character storage char = characters[id];
+    char.attrs.vigor = uint8(char.attrs.vigor.add(attrs[0]));
+    char.attrs.attunement = uint8(char.attrs.attunement.add(attrs[1]));
+    char.attrs.endurance = uint8(char.attrs.endurance.add(attrs[2]));
+    char.attrs.vitality = uint8(char.attrs.vitality.add(attrs[3]));
+    char.attrs.str = uint8(char.attrs.str.add(attrs[4]));
+    char.attrs.dex = uint8(char.attrs.dex.add(attrs[5]));
+    char.attrs.intt = uint8(char.attrs.intt.add(attrs[6]));
+    char.attrs.fth = uint8(char.attrs.fth.add(attrs[7]));
+    char.attrs.luck = uint8(char.attrs.luck.add(attrs[8]));
   }
 }
