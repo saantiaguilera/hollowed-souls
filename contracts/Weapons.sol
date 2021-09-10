@@ -4,12 +4,21 @@ pragma solidity >=0.4.22 <0.9.0;
 import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "./math/SafeMath16.sol";
+import "./math/SafeMath8.sol";
+import "./math/SafeCast.sol";
+import "./math/Conversion.sol";
 import "./Attributes.sol";
 import "./BasicRandom.sol";
 
 contract Weapons is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
 
+  using Conversion for uint256;
+  using SafeCast for uint256;
   using BasicRandom for uint256;
+  using SafeMath16 for uint16;
+  using SafeMath8 for uint8;
 
   string public constant WEAPON_TYPE_AXE = "Axe";
 
@@ -96,7 +105,7 @@ contract Weapons is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
     // We use abi calls so we can define all weapons as contract functions instead of keeping
     // them stored in the contract. This allows us to retroactively balance it through proxy
     // upgrades without having to set/apply/deploy (depending on the strat) all of them again.
-    string memory fn = string(abi.encodePacked("_createWeapon", uintToBytes(weaponID), "()"));
+    string memory fn = string(abi.encodePacked("_createWeapon", weaponID.toBytes(), "()"));
     (bool ret,) = address(this).call(
       abi.encodeWithSignature(fn)
     ); 
@@ -108,30 +117,7 @@ contract Weapons is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
     emit NewWeapon(minter, tokenID);
   }
 
-  function uintToBytes(uint _i) internal pure returns (bytes memory str) {
-    if (_i == 0) {
-      return "0";
-    }
-    uint j = _i;
-    uint len;
-    while (j != 0) {
-      len++;
-      j /= 10;
-    }
-    bytes memory bstr = new bytes(len);
-    uint k = len;
-    while (_i != 0) {
-      k = k-1;
-      uint8 temp = (48 + uint8(_i - _i / 10 * 10));
-      bytes1 b1 = bytes1(temp);
-      bstr[k] = b1;
-      _i /= 10;
-    }
-    return bstr;
-  }
-
   // _bless a weapon based on randoms.
-  // TODO: Use safemath!
   // TODO: combine seeds with current values on each.
   // There's probably a nicer way to do this, but without switchs and gas expensive stuff I haven't realized yet.
   function _bless(uint tokenID, uint seed) private {
@@ -152,9 +138,9 @@ contract Weapons is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
     } else if (n <= 975) { // 17,5% = 2 stats
       uint i = seed.combine(block.number).rand(1, 1e18);
       uint j = seed.combine(i).rand(0, vals.length-1);
-      i %= vals.length;
+      i = i.mod(vals.length);
       if (i == j) {
-        j = (j+i) % vals.length;
+        j = j.add(i).mod(vals.length);
       }
       RandomizableStats di = vals[i];
       RandomizableStats dj = vals[j];
@@ -162,7 +148,7 @@ contract Weapons is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
       vals[0] = di;
       vals[1] = dj;
     } else if (n <= 999) { // 2,49% = 3 stats
-      uint i = seed.combine(block.number).rand(1, vals.length-1);
+      uint i = seed.combine(block.number).rand(0, vals.length-1);
       if (i != vals.length-1) {
         vals[i] = vals[vals.length-1];
       }
@@ -173,23 +159,22 @@ contract Weapons is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
     for (uint8 i = 0; i < vals.length; i++) {
       ss = ss.combine(i+1); // reseed on each iteration
 
-      // TODO: This needs safemath YES OR YES.
       if (vals[i] == RandomizableStats.CRIT) {
         // crit blessing is up to 25%
-        weapons[tokenID].crit = uint8((uint256(weapons[tokenID].crit) * ss.rand(1000, BLESSING_MAX_CRIT)) / 1000);
+        weapons[tokenID].crit = uint256(weapons[tokenID].crit).mul(ss.rand(1000, BLESSING_MAX_CRIT)).div(1000).toUint8();
       } else if (vals[i] == RandomizableStats.PWR) {
-        weapons[tokenID].power.phy = uint16((uint256(weapons[tokenID].power.phy) * ss.rand(1000, BLESSING_MAX_PWR)) / 1000);
-        weapons[tokenID].power.magic = uint16((uint256(weapons[tokenID].power.magic) * ss.rand(1000, BLESSING_MAX_PWR)) / 1000);
-        weapons[tokenID].power.fire = uint16((uint256(weapons[tokenID].power.fire) * ss.rand(1000, BLESSING_MAX_PWR)) / 1000);
-        weapons[tokenID].power.dark = uint16((uint256(weapons[tokenID].power.dark) * ss.rand(1000, BLESSING_MAX_PWR)) / 1000);
-        weapons[tokenID].power.light = uint16((uint256(weapons[tokenID].power.light) * ss.rand(1000, BLESSING_MAX_PWR)) / 1000);
+        weapons[tokenID].power.phy = uint256(weapons[tokenID].power.phy).mul(ss.rand(1000, BLESSING_MAX_PWR)).div(1000).toUint16();
+        weapons[tokenID].power.magic = uint256(weapons[tokenID].power.magic).mul(ss.rand(1000, BLESSING_MAX_PWR)).div(1000).toUint16();
+        weapons[tokenID].power.fire = uint256(weapons[tokenID].power.fire).mul(ss.rand(1000, BLESSING_MAX_PWR)).div(1000).toUint16();
+        weapons[tokenID].power.dark = uint256(weapons[tokenID].power.dark).mul(ss.rand(1000, BLESSING_MAX_PWR)).div(1000).toUint16();
+        weapons[tokenID].power.light = uint256(weapons[tokenID].power.light).mul(ss.rand(1000, BLESSING_MAX_PWR)).div(1000).toUint16();
       } else if (vals[i] == RandomizableStats.SCALING) {
-        weapons[tokenID].scaling.str = uint16((uint256(weapons[tokenID].scaling.str) * ss.rand(1000, BLESSING_MAX_SCALING)) / 1000);
-        weapons[tokenID].scaling.dex = uint16((uint256(weapons[tokenID].scaling.dex) * ss.rand(1000, BLESSING_MAX_SCALING)) / 1000);
-        weapons[tokenID].scaling.intt = uint16((uint256(weapons[tokenID].scaling.intt) * ss.rand(1000, BLESSING_MAX_SCALING)) / 1000);
-        weapons[tokenID].scaling.fth = uint16((uint256(weapons[tokenID].scaling.fth) * ss.rand(1000, BLESSING_MAX_SCALING)) / 1000);
+        weapons[tokenID].scaling.str = uint256(weapons[tokenID].scaling.str).mul(ss.rand(1000, BLESSING_MAX_SCALING)).div(1000).toUint16();
+        weapons[tokenID].scaling.dex = uint256(weapons[tokenID].scaling.dex).mul(ss.rand(1000, BLESSING_MAX_SCALING)).div(1000).toUint16();
+        weapons[tokenID].scaling.intt = uint256(weapons[tokenID].scaling.intt).mul(ss.rand(1000, BLESSING_MAX_SCALING)).div(1000).toUint16();
+        weapons[tokenID].scaling.fth = uint256(weapons[tokenID].scaling.fth).mul(ss.rand(1000, BLESSING_MAX_SCALING)).div(1000).toUint16();
       } else if (vals[i] == RandomizableStats.WEIGHT) {
-        weapons[tokenID].weight = uint8((uint256(weapons[tokenID].weight) * ss.rand(BLESSING_MIN_WEIGHT, 1000)) / 1000);
+        weapons[tokenID].weight = uint256(weapons[tokenID].weight).mul(ss.rand(BLESSING_MIN_WEIGHT, 1000)).div(1000).toUint8();
       }
     }
   }

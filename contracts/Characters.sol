@@ -5,12 +5,14 @@ import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/math/SafeMath.sol";
+import "./math/SafeMath16.sol";
+import "./math/SafeMath8.sol";
 import "./Attributes.sol";
 
 contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeable {
   
-  using SafeMath for uint16;
-  using SafeMath for uint8;
+  using SafeMath16 for uint16;
+  using SafeMath8 for uint8;
 
   string public constant CHARACTER_TYPE_KNIGHT = "Knight";
   string public constant CHARACTER_TYPE_MERCENARY = "Mercenary";
@@ -110,7 +112,7 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
     uint16 spentLvls = 0; // Compute how much levels the sender is trying to use
     for (uint8 i = 0; i < Attributes.SIZE; i++) {
-      spentLvls = uint16(spentLvls.add(uint16(attrs[i])));
+      spentLvls = spentLvls.add(attrs[i]);
     }
     require(spentLvls > 0, "no levels to spend");
 
@@ -126,9 +128,9 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
     // Apply levels
     soulsByPlayer[msg.sender] = soulsByPlayer[msg.sender].sub(soulsRequired);
-    characters[tokenID].level = uint16(characters[tokenID].level.add(spentLvls));
+    characters[tokenID].level = characters[tokenID].level.add(spentLvls);
     _applyAttributes(tokenID, attrs);
-    emit LevelUp(msg.sender, tokenID, uint16(currentLvl.add(spentLvls)));
+    emit LevelUp(msg.sender, tokenID, currentLvl.add(spentLvls));
   }
 
   function _mintCharacter(string memory name, uint8[] memory attrs) private noCharacter(msg.sender) {
@@ -153,14 +155,14 @@ contract Characters is Initializable, ERC721Upgradeable, AccessControlUpgradeabl
 
   function _applyAttributes(uint256 id, uint8[] memory attrs) private allowedAttributes(attrs) {
     Character storage char = characters[id];
-    char.attrs.vigor = uint8(char.attrs.vigor.add(attrs[0]));
-    char.attrs.attunement = uint8(char.attrs.attunement.add(attrs[1]));
-    char.attrs.endurance = uint8(char.attrs.endurance.add(attrs[2]));
-    char.attrs.vitality = uint8(char.attrs.vitality.add(attrs[3]));
-    char.attrs.str = uint8(char.attrs.str.add(attrs[4]));
-    char.attrs.dex = uint8(char.attrs.dex.add(attrs[5]));
-    char.attrs.intt = uint8(char.attrs.intt.add(attrs[6]));
-    char.attrs.fth = uint8(char.attrs.fth.add(attrs[7]));
-    char.attrs.luck = uint8(char.attrs.luck.add(attrs[8]));
+    char.attrs.vigor = char.attrs.vigor.add(attrs[0]);
+    char.attrs.attunement = char.attrs.attunement.add(attrs[1]);
+    char.attrs.endurance = char.attrs.endurance.add(attrs[2]);
+    char.attrs.vitality = char.attrs.vitality.add(attrs[3]);
+    char.attrs.str = char.attrs.str.add(attrs[4]);
+    char.attrs.dex = char.attrs.dex.add(attrs[5]);
+    char.attrs.intt = char.attrs.intt.add(attrs[6]);
+    char.attrs.fth = char.attrs.fth.add(attrs[7]);
+    char.attrs.luck = char.attrs.luck.add(attrs[8]);
   }
 }
